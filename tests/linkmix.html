@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><title>Состав потока на ссылке</title>
+<style>body{font:12.5px/1.45 ui-monospace,Consolas,monospace;background:#0b0d12;color:#dfe5ee;padding:18px}pre{white-space:pre-wrap}</style></head>
+<body><pre id="out">running…</pre>
+<script type="module">
+// Which trip purposes load a given road link at a given half-hour (debugging bottlenecks).
+import { fetchMeta, loadRoads } from '../src/data/loader.js';
+import { TrafficModel } from '../src/sim/traffic.js';
+import { PD_LABEL, NPD } from '../src/sim/profiles.js';
+const q = new URLSearchParams(location.search);
+const links = (q.get('l') || '3704').split(',').map(Number);
+const slot = +(q.get('slot') || 16);
+const out = document.getElementById('out');
+out.textContent = '';
+const meta = await fetchMeta();
+const R = await loadRoads(meta);
+const model = new TrafficModel(meta, R);
+model.warmup(+(q.get('iters') || 8));
+const L = model.net.links;
+for (const l of links) {
+  const reg = slot >= 12 && slot < 21 ? 0 : slot >= 31 && slot < 42 ? 2 : 1;
+  const rows = [];
+  let tot = 0;
+  for (let p = 0; p < NPD; p++) {
+    const v = model.profiles[p * 48 + slot] * model.pdScale[p] * model.loads[p * 3 + reg][l] * 2;
+    tot += v;
+    if (v > 1) rows.push([PD_LABEL[p], Math.round(v)]);
+  }
+  rows.sort((a, b) => b[1] - a[1]);
+  out.textContent += `link ${l} slot ${slot / 2}h: ${Math.round(tot)} veh/h, cap ${Math.round(model.cap[slot * L + l])}\n` + rows.map(r => `  ${r[0].padEnd(28)} ${r[1]}`).join('\n') + '\n\n';
+}
+window.done = true;
+</script></body></html>

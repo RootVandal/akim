@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>ӘКІМ — калибровка модели</title>
+<style>
+  body { font: 13px/1.5 ui-monospace, Consolas, monospace; background: #0b111c; color: #dfe7f1; padding: 18px; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h3>Калибровка транспортной модели</h3>
+<pre id="out">running…</pre>
+<script type="module">
+import { fetchMeta, loadRoads } from '../src/data/loader.js';
+import * as P from '../src/sim/params.js';
+import { TrafficModel } from '../src/sim/traffic.js';
+
+const q = new URLSearchParams(location.search);
+for (const k of ['capacity', 'demand', 'alpha']) if (q.has(k)) P.TUNE[k] = +q.get(k);
+const iters = +(q.get('iters') || 10);
+const out = document.getElementById('out');
+const log = s => { out.textContent += s + '\n'; };
+out.textContent = '';
+const meta = await fetchMeta();
+const R = await loadRoads(meta);
+const t0 = performance.now();
+const model = new TrafficModel(meta, R);
+log(`TUNE ${JSON.stringify(P.TUNE)}; links ${model.net.links}; zones ${model.K}; build ${(performance.now() - t0).toFixed(0)} ms`);
+const t1 = performance.now();
+let m = model.warmup(iters);
+log(`warmup ${iters} it: ${(performance.now() - t1).toFixed(0)} ms`);
+const fmt = v => `${Math.round(v * 100)}%`;
+const show = (label, m) => {
+  const peak = Math.max(...m.slotCI);
+  const ps = Array.from(m.slotCI).indexOf(peak);
+  log(`${label.padEnd(26)} city ${fmt(m.ci).padStart(5)} | peak ${fmt(peak)} @${ps / 2}h | lost ${Math.round(m.lostHours / 1000)}k h | ` +
+    meta.districts.map((d, i) => `${d.name.slice(0, 5)} ${fmt(m.ciD[i])}`).join(' '));
+};
+show('baseline', m);
+window.model = model;
+window.result = { ci: m.ci, ciD: Array.from(m.ciD), slotCI: Array.from(m.slotCI), trips: model.demand.totalTrips(), pop: model.demand.population() };
+log(`trips/day ${Math.round(model.demand.totalTrips())}, pop ${Math.round(model.demand.population())}`);
+const months = +(q.get('months') || 0);
+if (q.has('exp')) {
+  const base = JSON.parse(JSON.stringify(model.schedule));
+  const run = (label, sched, k = 6) => {
+    model.setSchedule({ ...base, ...sched });
+    let r;
+    for (let i = 0; i < k; i++) r = model.step(9);
+    show(label, r);
+    model.setSchedule(base);
+    for (let i = 0; i < k; i++) model.step(9);
+  };
+  run('no change (noise)', {});
+  run('schools 7:30', { school: [7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5] });
+  run('schools 9:00', { school: [9, 9, 9, 9, 9, 9, 9, 9] });
+  run('schools 9:30', { school: [9.5, 9.5, 9.5, 9.5, 9.5, 9.5, 9.5, 9.5] });
+  run('gov 8 + uni 10', { gov: 8, uni: 10 });
+  run('flex 45%', { flex: 0.45 });
+  run('night freight 70%', { nightFreight: 0.7 });
+  run('remote fridays', { remote: 1 });
+  run('all schedule', { school: [7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5, 7.5], gov: 8, uni: 10, flex: 0.45, nightFreight: 0.7, remote: 1 });
+}
+if (months) {
+  for (let i = 0; i < months; i++) {
+    const cal = (9 + i) % 12;
+    if (cal === 0) model.grow(Math.floor((9 + i) / 12) - 1);
+    const r = model.step(cal);
+    if (cal === 9) show(`year +${Math.round(i / 12)}`, r);
+  }
+}
+log('done');
+window.done = true;
+</script>
+</body>
+</html>

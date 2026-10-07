@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>ӘКІМ — баланс кампании</title>
+<style>
+  body { font: 12.5px/1.45 ui-monospace, Consolas, monospace; background: #0b0d12; color: #dfe5ee; padding: 18px; }
+  pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h3>Баланс: 60 месяцев, сценарии игрока</h3>
+<pre id="out">running…</pre>
+<script type="module">
+// Runs the real Game + TrafficModel month by month (no rendering) for several
+// player strategies and prints index, reputation and budget trajectories.
+import { fetchMeta, loadRoads } from '../src/data/loader.js';
+import { TrafficModel } from '../src/sim/traffic.js';
+import { Game } from '../src/sim/game.js';
+
+const q = new URLSearchParams(location.search);
+const scenario = q.get('s') || 'nothing';
+const months = +(q.get('m') || 60);
+const out = document.getElementById('out');
+out.textContent = '';
+const log = s => { out.textContent += s + '\n'; };
+const meta = await fetchMeta();
+const R = await loadRoads(meta);
+const model = new TrafficModel(meta, R);
+const first = model.warmup(10);
+const game = new Game(meta, { seed: 7 });
+game.seedHistory(first);
+const pct = v => `${Math.round(v * 100)}%`.padStart(5);
+let m = first;
+const busiest = () => {
+  // top streets by delay from the model's own link metrics
+  const map = new Map();
+  for (let l = 0; l < model.net.roadLinks; l++) {
+    const s = model.net.seg[l], nm = R.seg_name[s];
+    if (!nm || model.net.district[l] >= 8) continue;
+    const e = map.get(nm) || { nm, segs: new Set(), delay: 0, d: model.net.district[l] };
+    e.delay += m.linkVT[l] - m.linkVT0[l];
+    e.segs.add(s);
+    map.set(nm, e);
+  }
+  return [...map.values()].sort((a, b) => b.delay - a.delay);
+};
+function act(month) {
+  if (scenario === 'nothing') return;
+  if (month === 1 && scenario !== 'max') {
+    game.setSchedule('uni', 10);
+    game.setSchedule('gov', 8);
+    for (const d of [4, 7]) game.setSchedule('school', 9.5, d);
+  }
+  if (month === 1 && scenario === 'max') { game.setSchedule('uni', 10); game.setSchedule('gov', 8); }
+  if (month === 3 && scenario !== 'max') game.setSchedule('flex', 0.2);
+  if (scenario === 'full' && month >= 2 && month <= 14 && month % 2 === 0) {
+    // reversible lanes / green waves on the worst streets that allow them
+    for (const st of busiest().slice(0, 12)) {
+      const segs = [...st.segs];
+      for (const key of ['reverse', 'greenwave', 'noparking']) {
+        const q2 = game.streetQuote(key, segs, R, model.net);
+        if (!q2.reason && q2.cost < game.s.budget * 0.3) {
+          const fwd = segs.map(s => { const [a, b] = model.amVolumes(s); return a >= b; });
+          game.applyStreet(key, segs, R, model.net, { name: '', district: st.d, params: { amFwd: fwd } });
+          return;
+        }
+      }
+    }
+  }
+  if (scenario === 'full' && month === 5) game.setSchedule('cameras', 1);
+  if (scenario === 'max') {
+    if (month === 1) { for (let d = 0; d < 8; d++) game.setSchedule('school', d % 2 ? 9.5 : 7.5, d); game.setSchedule('remote', 1); game.setSchedule('freight', 0.7); }
+    if (month === 2) { game.setSchedule('flex', 0.3); game.setSchedule('cameras', 1); }
+    if (month === 4) game.setSchedule('toll', 1);
+    if (month >= 2 && month <= 20) {
+      for (const st of busiest().slice(0, 20)) {
+        const segs = [...st.segs];
+        let done = false;
+        for (const key of ['reverse', 'greenwave', 'noparking', 'widen']) {
+          const q2 = game.streetQuote(key, segs, R, model.net);
+          if (!q2.reason && q2.cost < game.s.budget * 0.5) {
+            const fwd = segs.map(s => { const [a, b] = model.amVolumes(s); return a >= b; });
+            game.applyStreet(key, segs, R, model.net, { name: '', district: st.d, params: { amFwd: fwd } });
+            done = true; break;
+          }
+        }
+        if (done) break;
+      }
+    }
+  }
+}
+log(`scenario=${scenario}; start index ${pct(first.ci)}`);
+for (let i = 0; i < months; i++) {
+  act(i);
+  const ctx = game.beginMonth();
+  model.setSchedule(ctx.schedule);
+  model.setPolicies(ctx.policies);
+  if (ctx.grow != null) model.grow(ctx.grow);
+  m = model.step(ctx.calMonth, ctx.events);
+  const rep = game.endMonth(m, { busyStreets: [], population: model.demand.population() });
+  const roll = game.rolling();
+  if (i % 3 === 0 || rep.missionComplete || rep.over) {
+    log(`${String(i).padStart(2)} ${game.dateLabel(i).padEnd(15)} index ${pct(m.ci)} roll ${pct(roll.ci)} worst ${pct(Math.max(...roll.ciD))} | rep ${rep.rep.toFixed(1).padStart(5)} | budget ${(game.s.budget / 1e6).toFixed(1).padStart(6)}M inc ${(rep.income / 1e6).toFixed(2)}M` +
+      (rep.missionComplete ? '  <== MISSION COMPLETE' : '') + (rep.over ? `  <== OVER ${rep.over.type}` : ''));
+  }
+  if (game.s.over) break;
+}
+log('done');
+window.done = true;
+</script>
+</body>
+</html>

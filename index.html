@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ӘКІМ — симулятор акима Алматы</title>
+<meta name="description" content="3D-симулятор Алматы на реальных данных OpenStreetMap: победите пробки, разведя город по времени и пространству.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="css/app.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <div id="viewport"></div>
+  <div id="labels"></div>
+
+  <header id="topbar" class="hidden">
+    <div class="brand">
+      <div class="logo">ӘКІМ</div>
+      <div class="mission">
+        <div class="kicker" id="mKicker">Миссия 1</div>
+        <div class="mtitle" id="mTitle">Город без пробок</div>
+      </div>
+    </div>
+    <div class="clock">
+      <div class="date"><span id="date">Октябрь 2026</span><span class="term" id="term">месяц 1 из 60</span></div>
+      <div class="termbar"><i id="termFill"></i></div>
+      <div class="speed" id="speed">
+        <button data-speed="0" title="Пауза (пробел)"><svg viewBox="0 0 16 16"><rect x="3" y="2" width="3.5" height="12" rx="1"/><rect x="9.5" y="2" width="3.5" height="12" rx="1"/></svg></button>
+        <button data-speed="1" title="Обычная скорость: месяц ≈ 30 с (1)"><svg viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+        <button data-speed="2" title="Быстро: месяц ≈ 14 с (2)"><svg viewBox="0 0 16 16"><path d="M1.5 2.5v11l6.5-5.5zM8 2.5v11l6.5-5.5z"/></svg></button>
+        <button data-speed="3" title="Очень быстро: месяц ≈ 6 с (3)"><svg viewBox="0 0 16 16"><path d="M0.5 2.5v11l5-5.5zM5.5 2.5v11l5-5.5zM10.5 2.5v11l5-5.5z"/></svg></button>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat" id="stCI" title="Индекс пробок: на сколько дольше поездка, чем по пустому городу (в среднем за 6 месяцев)">
+        <div class="lbl">Пробки · 6 мес</div><div class="val" id="ci">—</div><div class="sub" id="ciSub"></div>
+      </div>
+      <div class="stat" title="Бюджет и чистый доход за месяц">
+        <div class="lbl">Бюджет</div><div class="val" id="budget">—</div><div class="sub" id="upkeep"></div>
+      </div>
+      <div class="stat rep" title="Репутация акима. Упадёт до нуля — отставка.">
+        <div class="lbl">Репутация</div><div class="val" id="rep">—</div>
+        <div class="repbar"><i id="repFill"></i></div>
+      </div>
+    </div>
+  </header>
+
+  <nav id="dock" class="hidden">
+    <button data-panel="city" class="on" title="Обзор города"><svg viewBox="0 0 24 24"><path d="M3 21V9l5-3v15M8 21V4l8 4v13M16 21v-9l5 2v7M2 21h20"/></svg><span>Город</span></button>
+    <button data-panel="schedule" title="Расписание города"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg><span>Время</span></button>
+    <button data-panel="nodes" title="Развязки на перекрёстках"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="5"/></svg><span>Развязки</span></button>
+    <button data-panel="parks" title="Парки (миссия 2)"><svg viewBox="0 0 24 24"><path d="M12 21v-6M7 15h10l-5-11z"/><path d="M5 21h14"/></svg><span>Парки</span></button>
+    <button data-panel="air" title="Воздух (миссия 3)"><svg viewBox="0 0 24 24"><path d="M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h8"/></svg><span>Воздух</span></button>
+    <button data-panel="policies" title="Принятые меры и финансы"><svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg><span>Меры</span></button>
+    <div class="sep"></div>
+    <button data-layer="traffic" class="on" title="Слой пробок"><svg viewBox="0 0 24 24"><path d="M4 20c4-6 4-10 8-16M12 4c4 6 4 10 8 16"/></svg><span>Пробки</span></button>
+    <button data-layer="cars" class="on" title="Машины"><svg viewBox="0 0 24 24"><path d="M4 16v-4l2-5h12l2 5v4zM4 16v2M20 16v2"/><circle cx="7.5" cy="13" r="1"/><circle cx="16.5" cy="13" r="1"/></svg><span>Машины</span></button>
+    <button data-action="settings" title="Качество графики"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span>Графика</span></button>
+    <button data-action="help" title="Как играть и обучение"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5V14M12 17.5v.01"/></svg><span>Помощь</span></button>
+  </nav>
+
+  <aside id="panel" class="hidden"><div id="panelBody"></div></aside>
+
+  <footer id="dayline" class="hidden">
+    <div class="dl-head">
+      <button id="dayPlay" title="Пауза / пуск (пробел)"><svg viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z"/></svg></button>
+      <div class="dl-time"><b id="hourLbl">06:00</b><span id="hourCI">—</span></div>
+      <div class="dl-legend"><i style="--c:#33d173"></i>свободно<i style="--c:#ffd62e"></i><i style="--c:#ff801f"></i><i style="--c:#f22621"></i><i style="--c:#7f0a10"></i>стоим</div>
+    </div>
+    <div class="dl-chart" id="dayChart"><canvas></canvas><div class="dl-cursor" id="dayCursor"></div></div>
+  </footer>
+
+  <div id="news" class="hidden"></div>
+  <div id="toasts"></div>
+  <div id="hover" class="hidden"></div>
+  <div id="modal" class="hidden"><div class="card" id="modalCard"></div></div>
+  <div id="tutorial" class="hidden"><div class="hole"></div><div class="tip"></div></div>
+
+  <div id="loading">
+    <div class="ld-sky"></div>
+    <svg class="ld-mountains" viewBox="0 0 1200 300" preserveAspectRatio="none"><path d="M0 300 L0 210 L90 170 L160 190 L250 120 L320 150 L400 80 L470 130 L540 60 L610 110 L690 40 L760 100 L840 70 L910 130 L990 90 L1070 150 L1140 120 L1200 160 L1200 300 Z" fill="#0b111b"/><path d="M400 80 L430 100 L455 92 L470 130 L540 60 L560 78 L580 72 L610 110 L690 40 L712 66 L735 60 L760 100 L840 70 L860 88 L880 84 L910 130" fill="none" stroke="#e8eef5" stroke-width="3" opacity=".45"/></svg>
+    <div class="ld-center">
+      <div class="ld-logo">ӘКІМ</div>
+      <div class="ld-sub">Алматы · симулятор акима</div>
+      <div class="ld-bar"><i id="ldFill"></i></div>
+      <div class="ld-stage" id="ldStage">Загружаем Алматы из OpenStreetMap…</div>
+    </div>
+    <div class="ld-foot">Данные: © участники OpenStreetMap (ODbL) · рельеф: SRTM / AWS Terrain Tiles</div>
+  </div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
